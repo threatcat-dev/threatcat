@@ -1,0 +1,9 @@
+The JSON files in this directory are exact copies from the OWASP Threat Dragon project:
+https://github.com/OWASP/threat-dragon
+
+These files are subject to the Apache License, Version 2.0. They are used solely
+for unit testing purposes and are not included in any distributed build of this software.
+
+Copyright (c) OWASP Foundation.
+
+See LICENSE-THIRDPARTY.txt for the full license text.

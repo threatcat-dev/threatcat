@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - "80:80"
+  web2:
+    image: nginx:latest
+    ports:
+      - "8080:80"
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_PASSWORD: example
+  db2:
+    image: docker.hub/postgres:latest
+    environment:
+      POSTGRES_PASSWORD: example
