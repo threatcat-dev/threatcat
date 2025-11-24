@@ -229,8 +229,3 @@ func TestPositionCellWithExceedingMapWidth(t *testing.T) {
 	assert.Equal(t, 740.0, cs.positionNextCell.Y, "The Y position of the next cell should be wrapped to the next row.")
 	assert.Equal(t, 100.0, cs.maxHeightCurrentRow, "The maximum height of the current row should be updated to the height of the flow.")
 }
-
-// Used for creating optional int64 values for the Threatdragon json model
-func int64Ptr(value int64) *int64 {
-	return &value
-}

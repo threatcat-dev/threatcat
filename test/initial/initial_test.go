@@ -13,7 +13,7 @@ type dummyChangelog struct{}
 
 func (dc dummyChangelog) AddEntry(string) {}
 
-// TestSimpleWorkflow is a simple smoke test for the intial threat model generation from a docker-compose file.
+// TestSimpleWorkflow is a simple smoke test for the initial threat model generation from a docker-compose file.
 // It parses the docker-compose file, analyzes it, and generates a ThreatDragon output file.
 // The results are not compared to any expected output, but the test ensures that no errors occur during the process.
 func TestSimpleWorkflow(t *testing.T) {

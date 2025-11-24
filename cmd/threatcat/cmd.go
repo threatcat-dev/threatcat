@@ -41,6 +41,7 @@ var threatCatLogo string = `
 type inputFiles struct {
 	DockerComposeFiles []string
 	ThreatDragonFiles  []string
+	DataFlowYamlFiles  []string
 }
 
 // arguments to initialize logger
@@ -71,6 +72,7 @@ func readArguments() userArguments {
 	//input file related arguments
 	pflag.StringSliceVarP(&args.InFiles.DockerComposeFiles, "dockercompose", "d", []string{}, "Indicates a DockerCompose input file")
 	pflag.StringSliceVarP(&args.InFiles.ThreatDragonFiles, "threatdragon", "t", []string{}, "Indicates a ThreatDragon input file")
+	pflag.StringSliceVarP(&args.InFiles.DataFlowYamlFiles, "dataflow", "w", []string{}, "Define path to data flow input file")
 	//threat model output file related arguments
 	pflag.StringVarP(&args.OutFilePath, "output", "o", "out.json", "Define Output Filepath")
 	//logging related arguments
@@ -107,6 +109,11 @@ func (a userArguments) validate() error {
 	for _, fpath := range a.InFiles.ThreatDragonFiles {
 		if !validInputPath(fpath) {
 			return fmt.Errorf("invalid ThreatDragon file path: %s", fpath)
+		}
+	}
+	for _, fpath := range a.InFiles.DataFlowYamlFiles {
+		if !validInputPath(fpath) {
+			return fmt.Errorf("invalid Dataflows ")
 		}
 	}
 

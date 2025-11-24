@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"sort"
 
 	"github.com/threatcat-dev/threatcat/internal/common"
 )
@@ -52,12 +53,21 @@ func (mm *ModelMerger) Merge(models []common.ThreatModel) common.ThreatModel {
 func (mm *ModelMerger) mergeModels(models []common.ThreatModel) common.ThreatModel {
 	mm.logger.Debug("Seperating model assets into assetMap")
 	assetMap := make(map[string][]common.Asset)
+	dataflowMap := make(map[string][]common.DataFlow)
+	boundaryMap := make(map[string][]common.TrustBoundary)
 	for _, model := range models {
 		for _, asset := range model.Assets {
 			assetMap[asset.ID] = append(assetMap[asset.ID], asset)
 		}
+		for _, dataflow := range model.DataFlows {
+			dataflowMap[dataflow.ID] = append(dataflowMap[dataflow.ID], dataflow)
+		}
+		for _, boundary := range model.Boundaries {
+			boundaryMap[boundary.ID] = append(boundaryMap[boundary.ID], boundary)
+		}
 	}
-	mm.logger.Debug("Model assets have been separated by ID", "distinctAssets", len(assetMap))
+	mm.logger.Debug("Model assets, dataflows and boundaries have been grouped by ID", "distinctAssets", len(assetMap), "distinctDataflows", len(dataflowMap), "distinctBoundaries", len(boundaryMap))
+
 	mergedAssets := make([]common.Asset, 0, len(assetMap))
 	for _, assets := range assetMap {
 		logger := mm.logger.With("assets[0].ID", assets[0].ID)
@@ -69,7 +79,7 @@ func (mm *ModelMerger) mergeModels(models []common.ThreatModel) common.ThreatMod
 		// no longer in the original source.
 		if len(assets) > 1 {
 			logger.Debug("Multiple Asset instances for this ID. Merging.", "assetCount", len(assets))
-			mergedAssets = append(mergedAssets, mergeableAssets(assets).merge(logger))
+			mergedAssets = append(mergedAssets, mergeableAssets(assets).merge(logger, mm.cl))
 		} else if common.GetOr(assets[0].Extra, "IsGeneratedByUser", false) || assets[0].Source != common.DataSourceThreatDragon {
 			logger.Debug("Asset was found in a single original source. Keeping.")
 			mergedAssets = append(mergedAssets, assets[0])
@@ -79,8 +89,41 @@ func (mm *ModelMerger) mergeModels(models []common.ThreatModel) common.ThreatMod
 		}
 	}
 
+	mergedBoundaries := make([]common.TrustBoundary, 0, len(boundaryMap))
+	for _, boundaries := range boundaryMap {
+		logger := mm.logger.With("boundaries[0].ID", boundaries[0].ID)
+
+		if len(boundaries) > 1 {
+			logger.Debug("Multiple TrustBoundary instaces for this ID. Merging.", "bondaryCount", len(boundaries))
+			mergedBoundaries = append(mergedBoundaries, mergeableBoundaries(boundaries).merge(mergedAssets, logger))
+		} else if boundaries[0].Source != common.DataSourceThreatDragon {
+			logger.Debug("Boundary was found in a single original source. Keeping.")
+			mergedBoundaries = append(mergedBoundaries, boundaries[0])
+		} else {
+			logger.Debug("Boundary was no longer found in its original source. Removing.")
+			mm.cl.AddEntry(fmt.Sprintf("Removed trust boundary '%s' that was no longer found in its original source.", boundaries[0].DisplayName))
+		}
+	}
+
 	// sort merged Assets slices by ID to provide deterministic order of items (ascending order)
 	slices.SortFunc(mergedAssets, func(a, b common.Asset) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
+	mergedDataflows := make([]common.DataFlow, 0, len(dataflowMap))
+	for _, dataflows := range dataflowMap {
+		logger := mm.logger.With("dataflows[0].ID", dataflows[0].ID)
+		if len(dataflows) > 1 {
+			// TODO: Implement
+			logger.Error("Not yet implemented")
+			panic("not yet implemented")
+		} else {
+			// TODO: Don't just keep the single dataflow. Reference asset logic above
+			mergedDataflows = append(mergedDataflows, dataflows[0])
+		}
+	}
+	// sort merged boundaries by ID to provide deterministic oder of items (ascending order)
+	slices.SortFunc(mergedBoundaries, func(a, b common.TrustBoundary) int {
 		return cmp.Compare(a.ID, b.ID)
 	})
 
@@ -88,8 +131,10 @@ func (mm *ModelMerger) mergeModels(models []common.ThreatModel) common.ThreatMod
 	modelExtra := mm.mergeModelExtras(models)
 	mm.logger.Info("Successfully merged model extras", "length", len(modelExtra))
 	return common.ThreatModel{
-		Assets: mergedAssets,
-		Extra:  modelExtra,
+		Assets:     mergedAssets,
+		DataFlows:  mergedDataflows,
+		Boundaries: mergedBoundaries,
+		Extra:      modelExtra,
 	}
 }
 
@@ -107,16 +152,11 @@ func (mm *ModelMerger) mergeModelExtras(models []common.ThreatModel) map[string]
 // this type alias has been defined to seperate asset merging logic into methods for this type.
 type mergeableAssets []common.Asset
 
-// type mergeableAssets struct {
-//
-// 	asset []common.Asset
-// }
-
-// mergeAsset merges multiple assets into one.
+// merge merges multiple assets into one.
 // It panics if there are no assets to merge.
 // If only one asset is provided, it returns that asset.
 // It merges the display name, type, source, and extra data of the assets.
-func (ma mergeableAssets) merge(logger *slog.Logger) common.Asset {
+func (ma mergeableAssets) merge(logger *slog.Logger, cl changelog) common.Asset {
 	logger.Debug("Merging assets")
 	if len(ma) == 0 {
 		panic("No assets to merge")
@@ -126,9 +166,10 @@ func (ma mergeableAssets) merge(logger *slog.Logger) common.Asset {
 	}
 
 	mergedAsset := common.Asset{
-		ID:          ma[1].ID,
+		ID:          ma[0].ID,
 		DisplayName: ma.displayName(logger),
 		Type:        ma.assetType(logger),
+		Threats:     ma.threats(logger, cl),
 		Source:      common.DataSourceMerged,
 		Extra:       ma.extra(logger),
 	}
@@ -142,30 +183,26 @@ func (ma mergeableAssets) merge(logger *slog.Logger) common.Asset {
 // 2. The display name of an asset with source DataSourceDockerCompose
 // 3. The display name of an asset with source DataSourceUnknown
 func (ma mergeableAssets) displayName(logger *slog.Logger) string {
-	var threatDragonName, dockerComposeName, unknownName *string
-	for _, asset := range ma {
-		switch asset.Source {
-		case common.DataSourceThreatDragon:
-			threatDragonName = &asset.DisplayName
-		case common.DataSourceDockerCompose:
-			dockerComposeName = &asset.DisplayName
-		case common.DataSourceUnknown:
-			unknownName = &asset.DisplayName
+	priority := []common.DataSource{
+		common.DataSourceMerged,
+		common.DataSourceThreatDragon,
+		common.DataSourceDockerCompose,
+		common.DataSourceUnknown,
+	}
+
+	for _, p := range priority {
+		for _, asset := range ma {
+			if asset.Source == p {
+				logger.Debug("Found display name for asset",
+					"source", p,
+					"displayName", asset.DisplayName)
+				return asset.DisplayName
+			}
 		}
 	}
-	if threatDragonName != nil {
-		logger.Debug("Found display name for asset", "threatDragonName", *threatDragonName)
-		return *threatDragonName
-	} else if dockerComposeName != nil {
-		logger.Debug("Found display name for asset", "dockerComposeName", *dockerComposeName)
-		return *dockerComposeName
-	} else if unknownName != nil {
-		logger.Debug("Found display name for asset", "unknownName", *unknownName)
-		return *unknownName
-	} else {
-		logger.Debug("Found no display name for asset")
-		return ""
-	}
+
+	logger.Debug("Found no display name for asset in priority order. Using any name.")
+	return ""
 }
 
 // assetType() returns the type of the merged asset.
@@ -174,30 +211,23 @@ func (ma mergeableAssets) displayName(logger *slog.Logger) string {
 // 2. The type of an asset with source DataSourceThreatDragon
 // 3. The type of an asset with source DataSourceUnknown
 func (ma mergeableAssets) assetType(logger *slog.Logger) common.AssetType {
-	var dockerComposeType, threatDragonType, unknownType *common.AssetType
-	for _, asset := range ma {
-		switch asset.Source {
-		case common.DataSourceDockerCompose:
-			dockerComposeType = &asset.Type
-		case common.DataSourceThreatDragon:
-			threatDragonType = &asset.Type
-		case common.DataSourceUnknown:
-			unknownType = &asset.Type
+	priority := []common.DataSource{
+		common.DataSourceDockerCompose,
+		common.DataSourceThreatDragon,
+		common.DataSourceUnknown,
+	}
+
+	for _, p := range priority {
+		for _, asset := range ma {
+			if asset.Source == p {
+				logger.Debug("Found asset type", "source", p, "type", asset.Type.String())
+				return asset.Type
+			}
 		}
 	}
-	if dockerComposeType != nil {
-		logger.Debug("Found asset type", "dockerComposeType", dockerComposeType.String())
-		return *dockerComposeType
-	} else if threatDragonType != nil {
-		logger.Debug("Found asset type", "threatDragonType", threatDragonType.String())
-		return *threatDragonType
-	} else if unknownType != nil {
-		logger.Debug("Found asset type", "unknownType", unknownType.String())
-		return *unknownType
-	} else {
-		logger.Debug("Found asset type", "AssetTypeUnknown", common.AssetTypeUnknown.String())
-		return common.AssetTypeUnknown
-	}
+
+	logger.Debug("Found asset type", "type", common.AssetTypeUnknown.String())
+	return common.AssetTypeUnknown
 }
 
 // extra() returns the extra data of the merged asset.
@@ -206,6 +236,144 @@ func (ma mergeableAssets) extra(logger *slog.Logger) map[string]any {
 	extraMap := make(map[string]any)
 	logger.Debug("Created extra map")
 	for _, asset := range ma {
+		maps.Copy(extraMap, asset.Extra)
+		//TODO: Are there cases, where we can't just overwrite the value?
+		//Can the same key occur in the same asset from different sources?
+	}
+	logger.Debug("Successfully merged extras")
+	return extraMap
+}
+
+// threats() returns the threats of the merged asset.
+// It uses the following priority order for each threat if found:
+// 1. priority source DataSourceThreatDragon
+// 2. priority source DataSourceDockerCompose
+// 3. priority source DataSourceUnknown
+func (ma mergeableAssets) threats(logger *slog.Logger, cl changelog) []common.Threat {
+
+	var threatsToReturn []common.Threat
+	var idMap = make(map[string][]common.Threat)
+
+	for _, asset := range ma {
+		for _, threat := range asset.Threats {
+			// only consider supported valid threats for merging
+			if threat.ModelType != common.NotSupported && threat.Type != common.ThreatTypeUnknown {
+				idMap[threat.ID] = append(idMap[threat.ID], threat)
+			}
+		}
+	}
+
+	for id, threats := range idMap {
+		// sort threats by source priority: ThreatDragon > DockerCompose > Unknown
+		sort.Slice(threats, func(i, j int) bool {
+			return threats[i].Source < threats[j].Source
+		})
+		idMap[id] = threats
+	}
+
+	for _, threats := range idMap {
+		// pick the highest priority threat for this ID
+		selectedThreat := &threats[0]
+		// check if threat needs to be marked as mitigated
+		if len(threats) == 1 && threats[0].Source == common.DataSourceThreatDragon && !threats[0].IsGeneratedByUser {
+			logger.Debug("This threat was generated by the tool and is no longer present in the original source. It will be marked as mitigated in the merged model.", "threat", common.TypeString(selectedThreat.Type)+" "+selectedThreat.Title)
+			cl.AddEntry(fmt.Sprintf("Threat '%s' was not found in the original source anymore. Therefore it will be marked as mitigated", common.TypeString(selectedThreat.Type)+" "+selectedThreat.Title))
+			selectedThreat.Status = common.Mitigated
+		}
+		threatsToReturn = append(threatsToReturn, *selectedThreat)
+		logger.Debug("Added threat to merged asset", "threat", common.TypeString(selectedThreat.Type)+" "+selectedThreat.Title)
+	}
+
+	return threatsToReturn
+}
+
+// this type alias has been defined to seperate boundary merging logic into methods for this type.
+type mergeableBoundaries []common.TrustBoundary
+
+// merge merges multiple boundaries into one.
+// It panics if there are not boundaries to merge.
+// If only one boundary is provided, it returns that boundary.
+// It merges display name, contained assets, and extra data.
+// The merged assets slice is required to exclude no longer existing assets from the contained assets slice.
+func (mb mergeableBoundaries) merge(mergedAssets []common.Asset, logger *slog.Logger) common.TrustBoundary {
+	logger.Debug("Merging boundaries")
+	if len(mb) == 0 {
+		panic("No boundaries to merge")
+	} else if len(mb) == 1 {
+		logger.Debug("Only one boundary to merge. Returning directly.")
+		return mb[0]
+	}
+
+	mergedBoundary := common.TrustBoundary{
+		ID:              mb[0].ID,
+		DisplayName:     mb.displayName(logger),
+		Source:          common.DataSourceMerged,
+		ContainedAssets: mb.containedAssets(mergedAssets, logger),
+		Extra:           mb.extra(logger),
+	}
+
+	logger.Debug("Successfully merged boundaries", "mergedBoundary", mergedBoundary)
+	return mergedBoundary
+}
+
+// displayName() returns the display name of the merged trust boundary.
+// It uses the following priority order:
+// 1. The display name of a boundary with source DataSourceThreatDragon
+// 2. The display name of a boundary with source DataSourceDockerCompose
+// 3. The display name of a boundary with source DataSourceUnknown
+func (mb mergeableBoundaries) displayName(logger *slog.Logger) string {
+	priority := []common.DataSource{
+		common.DataSourceThreatDragon,
+		common.DataSourceDockerCompose,
+		common.DataSourceUnknown,
+	}
+
+	for _, p := range priority {
+		for _, asset := range mb {
+			if asset.Source == p {
+				logger.Debug("Found display name for boundary",
+					"source", p,
+					"displayName", asset.DisplayName)
+				return asset.DisplayName
+			}
+		}
+	}
+
+	logger.Debug("Found no display name for boundary in priority order. Using any name.")
+	return mb[0].DisplayName
+}
+
+// containedAssets will merge the ID list of contained assets.
+// Assets that no longer exist will not be included.
+func (mb mergeableBoundaries) containedAssets(mergedAssets []common.Asset, logger *slog.Logger) []string {
+	logger.Debug("Merging contained assets")
+	containedAssets := make([]string, 0)
+
+	for _, boundary := range mb {
+		for _, containedAsset := range boundary.ContainedAssets {
+			if slices.Contains(containedAssets, containedAsset) {
+				continue // already stored
+			}
+			if !slices.ContainsFunc(mergedAssets, func(a common.Asset) bool {
+				return a.ID == containedAsset
+			}) {
+				continue // no longer exists
+			}
+
+			containedAssets = append(containedAssets, containedAsset)
+		}
+	}
+
+	logger.Debug("Successfully merged contained assets", "count", len(containedAssets))
+	return containedAssets
+}
+
+// extra() returns the extra data of the merged boundary.
+// It merges the extra data maps into one.
+func (mb mergeableBoundaries) extra(logger *slog.Logger) map[string]any {
+	extraMap := make(map[string]any)
+	logger.Debug("Created extra map")
+	for _, asset := range mb {
 		maps.Copy(extraMap, asset.Extra)
 		//TODO: Are there cases, where we can't just overwrite the value?
 		//Can the same key occur in the same asset from different sources?

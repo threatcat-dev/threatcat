@@ -9,6 +9,7 @@ import (
 
 	"github.com/threatcat-dev/threatcat/internal/changelog"
 	"github.com/threatcat-dev/threatcat/internal/common"
+	"github.com/threatcat-dev/threatcat/internal/dataflowyaml"
 	"github.com/threatcat-dev/threatcat/internal/dockercompose"
 	"github.com/threatcat-dev/threatcat/internal/logging"
 	"github.com/threatcat-dev/threatcat/internal/modelmerger"
@@ -77,6 +78,18 @@ func main() {
 		log.Fatalf("Could not analyze input files")
 	}
 
+	InputFiles := append(
+		cmd.InFiles.DockerComposeFiles,
+		cmd.InFiles.ThreatDragonFiles...,
+	//TODO commint info for dataflow yaml
+	)
+
+	for _, file := range InputFiles {
+		if err := cl.AddCommitInfo(file); err != nil {
+			log.Fatalf("changelog commit info error: %v", err)
+		}
+	}
+
 	fmt.Println("[4/7] 🛠️  Merging models")
 	modelMerger := modelmerger.NewModelMerger(cl, logger)
 	merged := modelMerger.Merge(threatModels)
@@ -110,8 +123,8 @@ func parseAndAnalyzeDockerComposeFiles(filePath string, dockerImageMap dockercom
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DockerCompose file: %s err: %w", filePath, err)
 	}
-
 	analyzer := dockercompose.NewDockerComposeAnalyzer(filePath, logger)
+
 	tModel, err := analyzer.Analyze(parsed, dockerImageMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze DockerCompose file %s err: %w", filePath, err)
@@ -129,6 +142,17 @@ func parseAndAnalyzeThreatDragonFile(filePath string, logger *slog.Logger) (*com
 	tModel, err := parsed.Analyze()
 	if err != nil {
 		return nil, fmt.Errorf("could not analyze ThreatDragon file %s err: %w", filePath, err)
+	}
+
+	return tModel, nil
+}
+
+func parseDataflowYamlFile(filePath string, logger *slog.Logger) (*common.ThreatModel, error) {
+	parser := dataflowyaml.NewDataflowYamlParser(filePath, logger)
+
+	tModel, err := parser.ParseAndConvert()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse and convert dataflow yaml file %s err: %w", filePath, err)
 	}
 
 	return tModel, nil
@@ -158,6 +182,18 @@ func parseAndAnalyzeInputFiles(inFiles inputFiles, dockerImageMap dockercompose.
 		threatModels = append(threatModels, *tModel)
 		logger.Info("Successfully parsed and analyzed ThreatDragon file", "filepath", tdFile)
 	}
+
+	// handle dataflow yaml files
+	for _, dfyFile := range inFiles.DataFlowYamlFiles {
+		logger.Info("Parsing DataFlow yaml file", "filepath", dfyFile)
+		tModel, err := parseDataflowYamlFile(dfyFile, logger)
+		if err != nil {
+			return nil, err
+		}
+		threatModels = append(threatModels, *tModel)
+		logger.Info("Successfully parsed Dataflow yaml file", "filepath", dfyFile)
+	}
+
 	// confirm that atleast one threat models was created
 	if len(threatModels) == 0 {
 		return nil, errors.New("analyzing failed: no input files detected")

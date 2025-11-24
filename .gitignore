@@ -1,2 +1,4 @@
 testoutput_*
 temp_*
+*.exe
+out.json

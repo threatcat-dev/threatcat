@@ -121,17 +121,17 @@ type ThreatFrequency struct {
 }
 
 type Threat struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Status      string  `json:"status"`
-	Severity    string  `json:"severity"`
-	Type        string  `json:"type"`
-	Description string  `json:"description"`
-	Mitigation  string  `json:"mitigation"`
-	ModelType   string  `json:"modelType"`
-	New         *bool   `json:"new,omitempty"`
-	Number      *int64  `json:"number,omitempty"`
-	Score       *string `json:"score,omitempty"`
+	ID          string           `json:"id"`
+	Title       string           `json:"title"`
+	Status      string           `json:"status"`
+	Severity    string           `json:"severity"`
+	Type        string           `json:"type"`
+	Description string           `json:"description"`
+	Mitigation  string           `json:"mitigation"`
+	ModelType   string           `json:"modelType"`
+	New         *bool            `json:"new,omitempty"`
+	Number      Nullable[int64]  `json:"number,omitzero"`
+	Score       Nullable[string] `json:"score,omitzero"`
 }
 
 type LabelElement struct {
@@ -467,5 +467,10 @@ func stringPtr(value string) *string {
 
 // Used for creating optional float64 values for the Threatdragon json model
 func float64Ptr(value float64) *float64 {
+	return &value
+}
+
+// Used for creating optional int64 values for the Threatdragon json model
+func int64Ptr(value int64) *int64 {
 	return &value
 }

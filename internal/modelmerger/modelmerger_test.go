@@ -42,11 +42,11 @@ func TestDisplayName(t *testing.T) {
 			expected: "UnknownName",
 		},
 		{
-			name: "No matching source results in empty string",
+			name: "Already merged asset just returns the display name",
 			assets: mergeableAssets{
 				{DisplayName: "Merged", Source: common.DataSourceMerged},
 			},
-			expected: "",
+			expected: "Merged",
 		},
 		{
 			name:     "Empty input returns empty string",
@@ -225,10 +225,10 @@ func TestMerge(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.wantPanic {
 				assert.Panics(t, func() {
-					_ = tt.assets.merge(slog.Default())
+					_ = tt.assets.merge(slog.Default(), dummyChangelog{})
 				})
 			} else {
-				result := tt.assets.merge(slog.Default())
+				result := tt.assets.merge(slog.Default(), dummyChangelog{})
 				assert.Equal(t, tt.expected.ID, result.ID)
 				assert.Equal(t, tt.expected.DisplayName, result.DisplayName)
 				assert.Equal(t, tt.expected.Type, result.Type)
@@ -352,5 +352,147 @@ func TestModelMerger_Merge(t *testing.T) {
 			// Compare extra fields
 			assert.Equal(t, tt.expected.Extra, result.Extra)
 		})
+	}
+}
+
+func TestMergeableAssets_ThreatsPriority(t *testing.T) {
+
+	tdThreats := []common.Threat{{ID: "threat1", Title: "TD", Type: common.DenialOfService}}
+	dcThreats := []common.Threat{{ID: "threat1", Title: "DC", Type: common.DenialOfService}}
+	unkThreats := []common.Threat{{ID: "threat1", Title: "UNK", Type: common.ThreatTypeUnknown}}
+
+	tdAsset := common.Asset{ID: "a", Source: common.DataSourceThreatDragon, Threats: tdThreats}
+	dcAsset := common.Asset{ID: "a", Source: common.DataSourceDockerCompose, Threats: dcThreats}
+	unkAsset := common.Asset{ID: "a", Source: common.DataSourceUnknown, Threats: unkThreats}
+
+	tests := []struct {
+		name     string
+		assets   mergeableAssets
+		expected []common.Threat
+	}{
+		{
+			name:     "prefer ThreatDragon",
+			assets:   mergeableAssets{tdAsset, dcAsset, unkAsset},
+			expected: tdThreats,
+		},
+		{
+			name:     "prefer DockerCompose when no ThreatDragon",
+			assets:   mergeableAssets{dcAsset, unkAsset},
+			expected: dcThreats,
+		},
+		{
+			name:     "fallback to Unknown",
+			assets:   mergeableAssets{unkAsset},
+			expected: nil,
+		},
+		{
+			name:     "empty slices produce nil/empty result",
+			assets:   mergeableAssets{{ID: "x", Source: common.DataSourceUnknown, Threats: nil}},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.assets.threats(slog.Default(), dummyChangelog{})
+
+			// assert length first, bail out on mismatch to avoid index errors
+			if !assert.Equal(t, len(tt.expected), len(got), "unexpected length: got %d want %d", len(got), len(tt.expected)) {
+				return
+			}
+
+			for i := range got {
+				assert.Equal(t, tt.expected[i].ID, got[i].ID, "mismatch ID at idx %d", i)
+				assert.Equal(t, tt.expected[i].Title, got[i].Title, "mismatch Title at idx %d", i)
+			}
+		})
+	}
+}
+
+// TestGenerate_ExcludeThreatsWithUnknownTypeOrModel tests that unkown threat types or not supported models should be excluded
+func TestGenerate_ExcludeThreatsWithUnknownTypeOrModel(t *testing.T) {
+	tdThreats := []common.Threat{
+		{ID: "threat1", Title: "Valid Threat", Type: common.Spoofing, ModelType: common.STRIDE},
+		{ID: "threat2", Title: "Unknown Type Threat", Type: common.ThreatTypeUnknown, ModelType: common.STRIDE},
+		{ID: "threat3", Title: "Unknown Model Threat", Type: common.Spoofing, ModelType: common.NotSupported},
+	}
+	tdAsset := common.Asset{ID: "a", Source: common.DataSourceThreatDragon, Threats: tdThreats}
+
+	mergeableAssets := mergeableAssets{tdAsset}
+
+	mergedThreats := mergeableAssets.threats(slog.Default(), dummyChangelog{})
+	assert.Equal(t, 1, len(mergedThreats), "Expected 1 threat in merged asset, got %d", len(mergedThreats))
+	assert.Equal(t, "threat1", mergedThreats[0].ID, "Expected threat ID 'threat1', got '%s'", mergedThreats[0].ID)
+}
+
+// TestGenerate_MitigateOriginalMissingThreats tests that threats present in the original ThreatDragon model but missing in the DockerCompose model are marked as Mitigated
+func TestGenerate_MitigateOriginalMissingThreats(t *testing.T) {
+	tdThreats := []common.Threat{
+		{ID: "threat1", Title: "Present Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceThreatDragon, Status: common.Open},
+		{ID: "threat2", Title: "Not Present Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceThreatDragon, Status: common.Open},
+	}
+	dcThreats := []common.Threat{
+		{ID: "threat1", Title: "Present Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceDockerCompose, Status: common.Open},
+	}
+
+	tdAsset := common.Asset{ID: "a", Source: common.DataSourceThreatDragon, Threats: tdThreats}
+	dcAsset := common.Asset{ID: "a", Source: common.DataSourceDockerCompose, Threats: dcThreats}
+
+	mergeableAssets := mergeableAssets{tdAsset, dcAsset}
+
+	mergedThreats := mergeableAssets.threats(slog.Default(), dummyChangelog{})
+	assert.Equal(t, 2, len(mergedThreats), "Expected 2 threats in merged asset, got %d", len(mergedThreats))
+	for _, threat := range mergedThreats {
+		switch threat.ID {
+		case "threat1":
+			assert.Equal(t, common.Open, threat.Status, "Expected threat1 to be Open, got %s", common.StatusString(threat.Status))
+		case "threat2":
+			assert.Equal(t, common.Mitigated, threat.Status, "Expected threat2 to be Mitigated, got %s", common.StatusString(threat.Status))
+		}
+	}
+}
+
+// TestGenerate_PreserveUserGeneratedThreats tests that user-generated threats are preserved during the merge process
+func TestGenerate_PreserveUserGeneratedThreats(t *testing.T) {
+	tdThreats := []common.Threat{
+		{ID: "threat1", Title: "User Generated Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: true, Source: common.DataSourceThreatDragon, Status: common.Open},
+	}
+	tdAsset := common.Asset{ID: "a", Source: common.DataSourceThreatDragon, Threats: tdThreats}
+	mergeableAssets := mergeableAssets{tdAsset}
+
+	mergedThreats := mergeableAssets.threats(slog.Default(), dummyChangelog{})
+	assert.Equal(t, 1, len(mergedThreats), "Expected 1 threat in merged asset, got %d", len(mergedThreats))
+	assert.Equal(t, "threat1", mergedThreats[0].ID, "Expected threat ID 'threat1', got '%s'", mergedThreats[0].ID)
+	assert.True(t, mergedThreats[0].IsGeneratedByUser, "Expected threat to be user-generated")
+}
+
+// TestGenerate_PreserveThreatStatus tests that the status of threats is preserved during the merge process if they are present in both assets
+func TestGenerate_DoNotMitigateOriginalNotMissingThreats(t *testing.T) {
+	tdThreats := []common.Threat{
+		{ID: "threat1", Title: "Present Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceThreatDragon, Status: common.Open},
+		{ID: "threat2", Title: "User Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceThreatDragon, Status: common.Open},
+		{ID: "threat3", Title: "User Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: true, Source: common.DataSourceThreatDragon, Status: common.Open},
+	}
+	dcThreats := []common.Threat{
+		{ID: "threat1", Title: "Present Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceDockerCompose, Status: common.Open},
+		{ID: "threat2", Title: "User Threat", Type: common.Spoofing, ModelType: common.STRIDE, IsGeneratedByUser: false, Source: common.DataSourceDockerCompose, Status: common.Open},
+	}
+
+	tdAsset := common.Asset{ID: "a", Source: common.DataSourceThreatDragon, Threats: tdThreats}
+	dcAsset := common.Asset{ID: "a", Source: common.DataSourceDockerCompose, Threats: dcThreats}
+
+	mergeableAssets := mergeableAssets{tdAsset, dcAsset}
+
+	mergedThreats := mergeableAssets.threats(slog.Default(), dummyChangelog{})
+	assert.Equal(t, 3, len(mergedThreats), "Expected 2 threats in merged asset, got %d", len(mergedThreats))
+	for _, threat := range mergedThreats {
+		switch threat.ID {
+		case "threat1":
+			assert.Equal(t, common.Open, threat.Status, "Expected threat1 to be Open, got %s", common.StatusString(threat.Status))
+		case "threat2":
+			assert.Equal(t, common.Open, threat.Status, "Expected threat2 to be Open, got %s", common.StatusString(threat.Status))
+		case "threat3":
+			assert.Equal(t, common.Open, threat.Status, "Expected threat3 to be Open, got %s", common.StatusString(threat.Status))
+		}
 	}
 }

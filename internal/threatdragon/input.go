@@ -74,15 +74,46 @@ func (i *ThreatDragonInput) Analyze() (*common.ThreatModel, error) {
 				logger.Debug("Stored threatcat ID found.", "id", internalID)
 			}
 
+			if isCellTrustBoudary(&cell) {
+				trustBoudary := common.TrustBoundary{
+					ID:              internalID,
+					DisplayName:     *cell.Data.Name,
+					ContainedAssets: []string{},
+					Source:          common.DataSourceThreatDragon,
+					Extra: map[string]any{
+						"ThreatDragonPosition": common.NewRectangle(
+							cell.Position.X,
+							cell.Position.Y,
+							cell.Size.Width,
+							cell.Size.Height,
+						),
+					},
+				}
+
+				model.Boundaries = append(model.Boundaries, trustBoudary)
+
+				continue
+			}
+
 			//Create a new asset with the data of the cell
+			assetThreats, threatModelMap := getCellDataThreats(cell.Data, i.logger, i.filePath)
+
 			asset := common.Asset{
 				ID:          internalID,
 				DisplayName: *cell.Data.Name,
 				Type:        getCellDataType(cell.Data),
+				Threats:     assetThreats,
 				Source:      common.DataSourceThreatDragon,
 				Extra: map[string]any{
 					"ThreatDragonDiagramCellIdx": fmt.Sprintf("%d-%d", j, k),
 					"IsGeneratedByUser":          isGeneratedByUser,
+					"ThreatModelMap":             threatModelMap,
+					"ThreatDragonPosition": common.NewRectangle(
+						cell.Position.X,
+						cell.Position.Y,
+						cell.Size.Width,
+						cell.Size.Height,
+					),
 				},
 			}
 
@@ -92,6 +123,23 @@ func (i *ThreatDragonInput) Analyze() (*common.ThreatModel, error) {
 			model.Assets = append(model.Assets, asset)
 		}
 		logger.Debug("Finished analysing diagram", "currentAssetCount", len(model.Assets))
+	}
+
+	for _, trustBoundary := range model.Boundaries {
+		trustBoundaryRect, err := common.Get[common.Rectangle](trustBoundary.Extra, "ThreatDragonPosition")
+		if err != nil {
+			return nil, err
+		}
+		for _, asset := range model.Assets {
+			assetRect, err := common.Get[common.Rectangle](asset.Extra, "ThreatDragonPosition")
+			if err != nil {
+				return nil, err
+			}
+
+			if trustBoundaryRect.IsContained(&assetRect) {
+				trustBoundary.ContainedAssets = append(trustBoundary.ContainedAssets, asset.ID)
+			}
+		}
 	}
 
 	i.logger.Debug("ThreatDragon Analysis finished", "assetCount", len(model.Assets))
@@ -115,6 +163,74 @@ func getCellDataType(data Data) common.AssetType {
 	default:
 		return common.AssetTypeUnknown
 	}
+}
+
+// getCellDataThreats extracts threats from the cell data
+func getCellDataThreats(data Data, logger *slog.Logger, filePath string) ([]common.Threat, map[int]Threat) {
+	threatModelThreats := make(map[int]Threat)
+	threats := make([]common.Threat, 0)
+	if data.Threats == nil {
+		return threats, threatModelThreats
+	}
+
+	for idx, threat := range *data.Threats {
+
+		internalID := extractID(&threat.Description, logger)
+		isGeneratedByUser := false
+
+		if internalID == "" {
+			isGeneratedByUser = true
+			internalID = generateIDHash(filePath, threat.ID)
+			logger.Debug("No stored threatcat ID found. This threat must be user created.", "generatedID", internalID)
+		} else {
+			logger.Debug("Stored threatcat threat ID found.", "id", internalID)
+		}
+
+		// Store the original ThreatDragon threat in the map for reference
+		threatModelThreats[idx] = threat
+
+		// convert model.Nullable fields into plain values expected by common.Threat
+		var num int64
+		if threat.Number.Set && threat.Number.Present {
+			num = threat.Number.Value
+		} else {
+			num = 0
+		}
+
+		var score string
+		if threat.Score.Set && threat.Score.Present {
+			score = threat.Score.Value
+		} else {
+			score = ""
+		}
+
+		threatType := common.ThreatThreatType(threat.Type)
+		modelType := common.ThreatModelType(threat.ModelType)
+
+		if modelType == common.NotSupported {
+			logger.Debug("Threat has an unsupported model type. It will not be parsed into the internal model.")
+			continue
+		}
+
+		threats = append(threats, common.Threat{
+			InternalID:        internalID,
+			ID:                threat.ID,
+			Title:             threat.Title,
+			Status:            common.ThreatStatus(threat.Status),
+			Severity:          threat.Severity,
+			Type:              threatType,
+			Description:       threat.Description,
+			Mitigation:        threat.Mitigation,
+			ModelType:         modelType,
+			Number:            num,
+			Score:             score,
+			IsGeneratedByUser: isGeneratedByUser,
+			Source:            common.DataSourceThreatDragon,
+			MapIndex:          idx,
+		})
+
+	}
+	return threats, threatModelThreats
 }
 
 // generateIDHash generates a unique ID hash for a given file path and data description
@@ -149,4 +265,11 @@ func extractID(description *string, logger *slog.Logger) string {
 		return matches[1]
 	}
 	return ""
+}
+
+// isCellTrustBoudary determines if the analyzed cell is a tust boundary
+// This is a extra function and not contained in getCellDataType because the datamodel sees TrustBoundaries as not a type of asset.
+// Therefor handling this in getCellDataType would mix things that do not belong together
+func isCellTrustBoudary(cell *Cell) bool {
+	return cell.Data.Type == "tm.BoundaryBox"
 }

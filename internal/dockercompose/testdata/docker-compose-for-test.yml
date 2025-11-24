@@ -1,5 +1,7 @@
 version: '3.8'
 services:
+  #(web)-->(db);Flow1;http;Unencrypted;publicnetwork
+  #(web)<-->(db2);Flow12;https;Encrypted;Private
   web:
     image: nginx:latest
     ports:

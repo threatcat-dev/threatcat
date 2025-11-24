@@ -1,0 +1,15 @@
+dataflows: 
+  - name: "Flow1"
+    protocol: "http"
+    encrypted: false
+    publicnetwork: true
+    source: "web"
+    target: "db"
+    bidirectional: false
+  - name: "Flow12"
+    protocol: "https"
+    encrypted: true
+    publicnetwork: false
+    source: "web"
+    target: "db2"
+    bidirectional: true

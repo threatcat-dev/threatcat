@@ -41,7 +41,7 @@ If you just want to use the tool and are not interested in modifying the source 
 
 * **Install to your PATH**: To build the binary and automatically place it in your Go bin directory (which should be part of your system's `PATH`), use:
     ```bash
-    go install https://github.com/threatcat-dev/threatcat/cmd/threatcat@latest
+    go install github.com/threatcat-dev/threatcat/cmd/threatcat@latest
     ```
     This will make the `threatcat` command available globally in your terminal.
 
@@ -69,6 +69,8 @@ To build/install from a local copy of the source code:
         go install ./cmd/threatcat
         ```
 
+    [🎥 Video: Installation](https://youtu.be/7meFm0g6JSQ)
+
 ***
 
 ## 🛠️ Usage
@@ -82,6 +84,9 @@ To create a new Threat Dragon model from a `docker-compose.yml` file, use the fo
 ```bash
 threatcat -d /path/to/your/docker-compose.yml -o /path/to/your/threatdragon-model.json
 ```
+
+[🎥 Video: Creating a new ThreatDragon model from docker-compose](https://youtu.be/WKcW93qTxBs)
+
 ### Updating an Existing Threat Dragon Model
 
 To update an existing Threat Dragon model with the containers from a `docker-compose.yml` file, run:
@@ -91,6 +96,8 @@ threatcat -d /path/to/your/docker-compose.yml -t /path/to/your/threatdragon-inpu
 ```
 
 To overwrite your existing model with the updates, simply use the same file path for both the `-t` parameter  and the `-o` parameter.
+
+[🎥 Video: Updating an existing ThreatDragon model](https://youtu.be/9KrcOa4rW8k)
 
 ### Custom Component Mapping
 
