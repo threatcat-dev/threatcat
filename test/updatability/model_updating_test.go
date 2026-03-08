@@ -45,7 +45,7 @@ func TestUpdateWorkflowAddAssets(t *testing.T) {
 	tdAssets := parseAndAnalyzeThreatDragon(t, outputPath)
 
 	// Step 4: Merge and regenerate
-	merger := modelmerger.NewModelMerger(dummyChangelog{}, slog.Default())
+	merger := modelmerger.NewModelMerger(dummyChangelog{}, slog.Default(), false)
 	merged := merger.Merge([]common.ThreatModel{*updatedAssets, *tdAssets})
 
 	require.NoError(t, output.Generate(&merged), "failed to regenerate ThreatDragon output with merged model")
@@ -77,7 +77,7 @@ func TestUpdateWorkflowRemoveAssets(t *testing.T) {
 	tdAssets := parseAndAnalyzeThreatDragon(t, outputPath)
 
 	// Step 4: Merge and regenerate
-	merger := modelmerger.NewModelMerger(dummyChangelog{}, slog.Default())
+	merger := modelmerger.NewModelMerger(dummyChangelog{}, slog.Default(), false)
 	merged := merger.Merge([]common.ThreatModel{*updatedAssets, *tdAssets})
 
 	require.NoError(t, output.Generate(&merged), "failed to regenerate ThreatDragon output with merged model")
@@ -99,7 +99,7 @@ func TestUpdateWorkflowOnThreatDragon(t *testing.T) {
 	initialAssets := parseAndAnalyzeCompose(t, tempComposeFile)
 	tdAssets := parseAndAnalyzeThreatDragon(t, initailTDModel)
 
-	merger := modelmerger.NewModelMerger(dummyChangelog{}, slog.Default())
+	merger := modelmerger.NewModelMerger(dummyChangelog{}, slog.Default(), false)
 	merged := merger.Merge([]common.ThreatModel{*initialAssets, *tdAssets})
 
 	output := threatdragon.NewThreatdragonOutput(outputPath, dummyChangelog{}, slog.Default())
@@ -114,14 +114,15 @@ func TestUpdateWorkflowOnThreatDragon(t *testing.T) {
 	assert.True(t, ok, "failed to cast input to ThreatDragonModel from first input")
 
 	cells := project.Detail.Diagrams[0].Cells
-	// after the update there should be 5 elements. The user_created_process was created by the user
+	// after the update there should be 6 elements. The user_created_process was created by the user
 	// the other elements are from the docker compose
-	assert.Len(t, cells, 5, "expected 5 cells in the threatdragon model")
+	assert.Len(t, cells, 6, "expected 6 cells in the threatdragon model")
 	assert.True(t, hasCellWithName(cells, "user_created_process"), "failed to find user_created_process")
 	assert.True(t, hasCellWithName(cells, "web"), "failed to find web")
 	assert.True(t, hasCellWithName(cells, "web2"), "failed to find web2")
 	assert.True(t, hasCellWithName(cells, "db"), "failed to find db")
 	assert.True(t, hasCellWithName(cells, "db2"), "failed to find db2")
+	assert.True(t, hasCellWithName(cells, "default"), "failed to find default")
 
 	// Step 3: Replace with updated docker-compose file with 3 elements and merge and generated updated Threatdragon model
 	setupComposeFile(t, updatedComposeFile, tempComposeFile)
@@ -139,13 +140,14 @@ func TestUpdateWorkflowOnThreatDragon(t *testing.T) {
 	assert.True(t, ok, "failed to cast input to ThreatDragonModel from second input")
 
 	cells = project.Detail.Diagrams[0].Cells
-	// after the update there should be 4 elements. The user_created_process was created by the user
+	// after the update there should be 5 elements. The user_created_process was created by the user
 	// the other elements are from the docker compose. web2 should be removed
-	assert.Len(t, cells, 4, "expected 4 cells in the threatdragon model")
+	assert.Len(t, cells, 5, "expected 5 cells in the threatdragon model")
 	assert.True(t, hasCellWithName(cells, "user_created_process"), "failed to find user_created_process")
 	assert.True(t, hasCellWithName(cells, "web"), "failed to find web")
 	assert.True(t, hasCellWithName(cells, "db"), "failed to find db")
 	assert.True(t, hasCellWithName(cells, "db2"), "failed to find db2")
+	assert.True(t, hasCellWithName(cells, "default"), "failed to find default")
 }
 
 func hasCellWithName(cells []threatdragon.Cell, name string) bool {

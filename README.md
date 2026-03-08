@@ -132,13 +132,7 @@ threatcat -h
 
 ## 🙌 Contributing
 
-We welcome and greatly appreciate feedback from the community! If you have suggestions for new features, ideas for improvement, or have found a bug, please let us know by opening an issue.
-
-**A Note on Pull Requests**
-
-As Threatcat is currently being developed as part of a student project, we need to handle the core implementation ourselves. For this reason, **we are currently not able to accept pull requests.**
-
-We may be able to open up for code contributions in the future. We appreciate your understanding!
+We welcome and greatly appreciate contributions from the community! If you have suggestions for new features, ideas for improvement, or have found a bug, please let us know by opening an issue or submitting a pull request.
 
 ***
 

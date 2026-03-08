@@ -13,8 +13,8 @@ import (
 // Note: ensures DRY principle
 func testParserWithPath(t *testing.T, filePath string, isNegativeTest bool) *types.Project {
 
-	dcpParser := NewDockerComposeParser(filePath, slog.Default())
-	project, err := dcpParser.ParseDockerComposeYML()
+	parser := NewDockerComposeParser(filePath, slog.Default())
+	project, err := parser.ParseDockerComposeYML()
 
 	if isNegativeTest {
 		assert.Error(t, err)
@@ -30,8 +30,8 @@ func testParserWithPath(t *testing.T, filePath string, isNegativeTest bool) *typ
 // Helper to test project name generation out of paths
 // Note: ensures DRY principle
 func testProjectNameCreationFileWithPath(t *testing.T, filePath string, expectedName string) {
-	dcpParser := NewDockerComposeParser(filePath, slog.Default())
-	projName := dcpParser.createProjectNameOutOfFilepath(filePath)
+	parser := NewDockerComposeParser(filePath, slog.Default())
+	projName := parser.createProjectNameOutOfFilepath(filePath)
 	assert.Equal(t, projName, expectedName)
 }
 

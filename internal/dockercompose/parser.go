@@ -1,3 +1,9 @@
+// Package dockercompose provides functionality for analyzing Docker Compose files
+// to generate security threat models. It parses compose files, identifies assets and
+// trust boundaries, and investigates potential security threats using STRIDE methodology.
+
+// This file implements functionality for parsing Docker Compose YAML files to create a structured representation of the project.
+
 package dockercompose
 
 import (
@@ -27,7 +33,7 @@ func NewDockerComposeParser(filePath string, logger *slog.Logger) *DockerCompose
 }
 
 // extracts filepath and sanitizes it to create an usable project namen
-func (dcp *DockerComposeParser) createProjectNameOutOfFilepath(filePath string) string {
+func (p *DockerComposeParser) createProjectNameOutOfFilepath(filePath string) string {
 	//extract filename, replace "-" characters with "_"
 	projectName := strings.ReplaceAll(strings.ToLower(strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filepath.Base(filePath)))), "-", "_")
 	// Define a regular expression that matches any character that is NOT a-z, A-Z, 0-9, hyphen, or underscore.
@@ -35,20 +41,20 @@ func (dcp *DockerComposeParser) createProjectNameOutOfFilepath(filePath string) 
 
 	// Eliminate all unsupported characters by replacing them with an empty string.
 	sanitizedProjName := re.ReplaceAllString(projectName, "")
-	dcp.logger.Info("Generated project name", "ProjectName", sanitizedProjName)
+	p.logger.Info("Generated project name", "ProjectName", sanitizedProjName)
 	return sanitizedProjName
 }
 
 /* Brief: Parses a docker Compose YAML
  * Returns: Pointer to Project on success, nil on failure
  */
-func (dcp *DockerComposeParser) ParseDockerComposeYML() (*types.Project, error) {
+func (p *DockerComposeParser) ParseDockerComposeYML() (*types.Project, error) {
 	//convert File Path to projectName
-	projectName := dcp.createProjectNameOutOfFilepath(dcp.filePath)
-	logger := dcp.logger.With("projectName", projectName)
+	projectName := p.createProjectNameOutOfFilepath(p.filePath)
+	logger := p.logger.With("projectName", projectName)
 	// Create project options from the docker-compose file
 	options, err := cli.NewProjectOptions(
-		[]string{dcp.filePath},
+		[]string{p.filePath},
 		cli.WithOsEnv,
 		cli.WithDotEnv,
 		cli.WithName(projectName),

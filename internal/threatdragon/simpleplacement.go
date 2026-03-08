@@ -1,3 +1,5 @@
+// This file implements a simple sequential placement strategy used as fallback when the solver fails.
+
 package threatdragon
 
 const defaultMaxWidth = 1000
@@ -6,6 +8,7 @@ const defaultOffsetY = 50
 const defaultBoundaryWidth = 120
 const defaultBoundaryHeight = 60
 
+// simplePlacement provides a basic sequential positioning strategy for diagram elements.
 type simplePlacement struct {
 	nextX    float64
 	nextY    float64
@@ -14,6 +17,7 @@ type simplePlacement struct {
 	offsetY  float64
 }
 
+// newSimplePlacement initializes a new simplePlacement with default values.
 func newSimplePlacement() *simplePlacement {
 	return &simplePlacement{
 		nextX:    50,
@@ -24,6 +28,7 @@ func newSimplePlacement() *simplePlacement {
 	}
 }
 
+// determineStartingPoint calculates the initial position for new elements based on existing cells in the diagram.
 func (sp *simplePlacement) determineStartingPoint(existingCells []Cell) {
 	for _, existingCell := range existingCells {
 		cellMaxX := 0.0
@@ -46,7 +51,8 @@ func (sp *simplePlacement) determineStartingPoint(existingCells []Cell) {
 	}
 }
 
-func (sp *simplePlacement) GetPosition(string) (float64, float64) {
+// GetPosition returns the next available coordinates and updates internal state for the subsequent call.
+func (sp *simplePlacement) GetPosition(_ string, _ float64, _ float64) (float64, float64, error) {
 	x, y := sp.nextX, sp.nextY
 
 	sp.nextX += sp.offsetX
@@ -56,20 +62,27 @@ func (sp *simplePlacement) GetPosition(string) (float64, float64) {
 		sp.nextY += sp.offsetY
 	}
 
-	return x, y
+	return x, y, nil
 }
 
-func (sp *simplePlacement) GetBoundaryPosition(string) (float64, float64, float64, float64) {
-	x, y := sp.GetPosition("")
-	return x, y, defaultBoundaryWidth, defaultBoundaryHeight
+// GetBoundaryPosition returns the coordinates and default dimensions for a new trust boundary.
+func (sp *simplePlacement) GetBoundaryPosition(_ string) (float64, float64, float64, float64, error) {
+	x, y, err := sp.GetPosition("", 0, 0)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	return x, y, defaultBoundaryWidth, defaultBoundaryHeight, nil
 }
 
+// dontPlace is a positioning strategy that always returns (0,0).
 type dontPlace struct{}
 
-func (dp dontPlace) GetPosition(assetID string) (float64, float64) {
-	return 0, 0
+// GetPosition returns (0,0,nil).
+func (dp dontPlace) GetPosition(_ string, _ float64, _ float64) (float64, float64, error) {
+	return 0, 0, nil
 }
 
-func (dp dontPlace) GetBoundaryPosition(boundaryID string) (float64, float64, float64, float64) {
-	return 0, 0, 0, 0
+// GetBoundaryPosition returns (0,0,0,0,nil).
+func (dp dontPlace) GetBoundaryPosition(_ string) (float64, float64, float64, float64, error) {
+	return 0, 0, 0, 0, nil
 }

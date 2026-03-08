@@ -1,4 +1,5 @@
-// This file was generated from JSON Schema using quicktype, do not modify it directly.
+// This file defines the Threat Dragon JSON data model types, generated from JSON Schema using quicktype.
+
 package threatdragon
 
 import (
@@ -7,12 +8,23 @@ import (
 	"errors"
 )
 
+const (
+	cellTypeTrustBoundary      = "tm.BoundaryBox"
+	cellTypeTrustBoundaryCurve = "tm.Boundary"
+	cellTypeDataFlow           = "tm.Flow"
+	cellTypeDatabase           = "tm.Store"
+	cellTypeProcess            = "tm.Process"
+	cellTypeActor              = "tm.Actor"
+)
+
+// Project represents the root of a Threat Dragon model.
 type Project struct {
 	Version string  `json:"version"`
 	Summary Summary `json:"summary"`
 	Detail  Detail  `json:"detail"`
 }
 
+// Detail contains the core elements of the threat model, including diagrams and contributors.
 type Detail struct {
 	Contributors []Contributor `json:"contributors"`
 	Diagrams     []Diagram     `json:"diagrams"`
@@ -21,10 +33,12 @@ type Detail struct {
 	ThreatTop    int64         `json:"threatTop"`
 }
 
+// Contributor represents a contributor to the threat model.
 type Contributor struct {
 	Name string `json:"name"`
 }
 
+// Diagram represents a single diagram within the threat model.
 type Diagram struct {
 	ID          int64   `json:"id"`
 	Title       string  `json:"title"`
@@ -36,6 +50,7 @@ type Diagram struct {
 	Description *string `json:"description,omitempty"`
 }
 
+// Cell represents a single element on the diagram, such as a process, store, or data flow.
 type Cell struct {
 	Position  *VertexClass   `json:"position,omitempty"`
 	Size      *Size          `json:"size,omitempty"`
@@ -83,6 +98,7 @@ type Line struct {
 	StrokeWidth     *float64         `json:"strokeWidth,omitempty"`
 }
 
+// Data represents the properties of a cell, such as its type, name, and associated threats.
 type Data struct {
 	Type                   string           `json:"type"`
 	Name                   *string          `json:"name,omitempty"`
@@ -120,6 +136,7 @@ type ThreatFrequency struct {
 	ElevationOfPrivilege  *int64 `json:"elevationOfPrivilege,omitempty"`
 }
 
+// Threat represents a single threat identified for a cell.
 type Threat struct {
 	ID          string           `json:"id"`
 	Title       string           `json:"title"`

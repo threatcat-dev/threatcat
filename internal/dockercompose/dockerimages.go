@@ -1,3 +1,6 @@
+// This file implements functionality for mapping Docker image names to asset types.
+// It provides a predefined set of known images and their classifications.
+
 package dockercompose
 
 import (
@@ -97,10 +100,25 @@ func removeVersion(image string) string {
 
 // getImageName extracts the image name from the full image string
 func getImageName(image string) string {
-	// Get the image name without the tag and registry/repository
-	parts := strings.Split(image, "/")
-	nameWithoutRegistry := parts[len(parts)-1]
-	return strings.Split(nameWithoutRegistry, ":")[0]
+	// If the image string is empty, return an empty string
+	if image == "" {
+		return ""
+	}
+
+	// If the image contains a digest (indicated by '@'), remove the digest part
+	if parts := strings.Split(image, "@"); len(parts) > 1 {
+		image = parts[0]
+	}
+
+	// Find the last occurrence of "/" to get the image name without the registry/repository
+	lastSlash := strings.LastIndex(image, "/")
+	namePart := image
+	if lastSlash != -1 {
+		namePart = image[lastSlash+1:]
+	}
+
+	// Split the name part by ":" to remove the tag, and return the first part as the image name
+	return strings.Split(namePart, ":")[0]
 }
 
 // addImagesToMap adds a list of images to the DockerImageMap with the specified asset type.

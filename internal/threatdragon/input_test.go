@@ -19,6 +19,7 @@ func TestAnalyze(t *testing.T) {
 		testname      string
 		inputFile     string
 		expectedModel common.ThreatModel
+		expectError   bool
 	}{
 		{
 			testname:  "test analyze parsed threatdragon file for dynamic input",
@@ -49,16 +50,41 @@ func TestAnalyze(t *testing.T) {
 				},
 				Boundaries: []common.TrustBoundary{
 					{
-							ID:          "", // ID is not checked
-							DisplayName: "Boundary Name",
-							ContainedAssets: []string{}, // ContainedAssets is not Checked
-							Source: common.DataSourceThreatDragon,
-							Extra: map[string]any{
-								"ThreatDragonCell": map[string]any{}, // Not checked
-							},
+						ID:              "", // ID is not checked
+						DisplayName:     "Boundary Name",
+						ContainedAssets: []string{}, // ContainedAssets is not Checked
+						Source:          common.DataSourceThreatDragon,
+						Extra: map[string]any{
+							"ThreatDragonCell": map[string]any{}, // Not checked
+						},
 					},
 				},
 			},
+			expectError: false,
+		},
+		{
+			testname:      "test analyze parsed for empty model",
+			inputFile:     "./testdata/threatdragon_empty.json",
+			expectedModel: common.EmptyThreatModel(), // not used since an error is expected
+			expectError:   true,
+		},
+		{
+			testname:      "test analyze parsed for malformed JSON",
+			inputFile:     "./testdata/threatdragon_malformed.json",
+			expectedModel: common.EmptyThreatModel(), // not used since an error is expected
+			expectError:   true,
+		},
+		{
+			testname:      "test analyze parsed for missing fields in JSON",
+			inputFile:     "./testdata/threatdragon_missing_fields.json",
+			expectedModel: common.EmptyThreatModel(), // not used since an error is expected
+			expectError:   true,
+		},
+		{
+			testname:      "test analyze parsed for duplicate ids",
+			inputFile:     "./testdata/threatdragon_duplicate_ids.json",
+			expectedModel: common.EmptyThreatModel(), // not used since an error is expected
+			expectError:   true,
 		},
 	}
 
@@ -69,8 +95,11 @@ func TestAnalyze(t *testing.T) {
 
 			// Analyze the parsed threat model
 			internalModel, err := input.Analyze()
-			if err != nil {
-				t.Errorf("Expected no error, got %v", err)
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			} else {
+				assert.NoError(t, err, "Expected no error, got %v", err)
 			}
 
 			// Validate the number of assets and diagram IDs
@@ -91,6 +120,7 @@ func TestAnalyze(t *testing.T) {
 				assert.Equal(t, tt.expectedModel.Assets[i].Type, asset.Type)
 			}
 
+			assert.Equal(t, len(tt.expectedModel.Boundaries), len(internalModel.Boundaries))
 			// Validate each trust boundary's properties
 			for i, boundary := range internalModel.Boundaries {
 				assert.Equal(t, common.MaxIDHashLength, len(boundary.ID)) // Ensure ID length
@@ -147,34 +177,33 @@ func TestAnalyzeWithBoundary(t *testing.T) {
 							"ThreatDragonCell": map[string]any{}, // Not checked
 						},
 					},
-
 				},
 				Extra: map[string]any{
 					"ThreatDragonModel": nil, // Not checked
 				},
 				Boundaries: []common.TrustBoundary{
 					{
-							ID:          "", // ID is not checked
-							DisplayName: "Trust Boundary 1",
-							ContainedAssets: []string{
-								"d899870e-853e-4378-aea1-c2c9d489e16f",
-								"7a065373-8d89-4fe2-a1cc-cdf6cd7aa1ba",
-							},
-							Source: common.DataSourceThreatDragon,
-							Extra: map[string]any{
-								"ThreatDragonCell": map[string]any{}, // Not checked
-							},
+						ID:          "", // ID is not checked
+						DisplayName: "Trust Boundary 1",
+						ContainedAssets: []string{
+							generateIDHash("./testdata/threatdragon_trustboundary_testjson.json", "d899870e-853e-4378-aea1-c2c9d489e16f"),
+							generateIDHash("./testdata/threatdragon_trustboundary_testjson.json", "7a065373-8d89-4fe2-a1cc-cdf6cd7aa1ba"),
+						},
+						Source: common.DataSourceThreatDragon,
+						Extra: map[string]any{
+							"ThreatDragonCell": map[string]any{}, // Not checked
+						},
 					},
 					{
-							ID:          "", // ID is not checked
-							DisplayName: "Trust Boundary 2",
-							ContainedAssets: []string{
-								"6e101964-58e8-4379-893a-a358ca1c086e",
-							},
-							Source: common.DataSourceThreatDragon,
-							Extra: map[string]any{
-								"ThreatDragonCell": map[string]any{}, // Not checked
-							},
+						ID:          "", // ID is not checked
+						DisplayName: "Trust Boundary 2",
+						ContainedAssets: []string{
+							generateIDHash("./testdata/threatdragon_trustboundary_testjson.json", "6e101964-58e8-4379-893a-a358ca1c086e"),
+						},
+						Source: common.DataSourceThreatDragon,
+						Extra: map[string]any{
+							"ThreatDragonCell": map[string]any{}, // Not checked
+						},
 					},
 				},
 			},
@@ -211,9 +240,10 @@ func TestAnalyzeWithBoundary(t *testing.T) {
 			}
 
 			// Validate each trust boundary's properties
+			assert.Equal(t, len(tt.expectedModel.Boundaries), len(internalModel.Boundaries))
 			for i, boundary := range internalModel.Boundaries {
-				assert.Equal(t, common.MaxIDHashLength, len(boundary.ID)) // Ensure ID length
-				assert.Equal(t, len(tt.expectedModel.Boundaries[i].ContainedAssets) ,len(boundary.ContainedAssets)) // Ensure ContainedAssets length
+				assert.Equal(t, common.MaxIDHashLength, len(boundary.ID))                                           // Ensure ID length
+				assert.Equal(t, len(tt.expectedModel.Boundaries[i].ContainedAssets), len(boundary.ContainedAssets)) // Ensure ContainedAssets length
 
 				for _, id := range tt.expectedModel.Boundaries[i].ContainedAssets {
 					assert.True(t, slices.Contains(boundary.ContainedAssets, id))
@@ -221,129 +251,6 @@ func TestAnalyzeWithBoundary(t *testing.T) {
 
 				assert.Equal(t, tt.expectedModel.Boundaries[i].DisplayName, boundary.DisplayName)
 			}
-		})
-	}
-}
-
-// TestGenerateIDHash tests the generateIDHash function to ensure it produces non-empty hashes and equal hashes for same input.
-func TestGenerateIDHash(t *testing.T) {
-	tests := []struct {
-		name               string
-		filePath           string
-		threatdragonCellID string
-		expectedLen        int
-	}{
-		{
-			name:               "Valid file path and CellID",
-			filePath:           "/path/to/file",
-			threatdragonCellID: uuid.NewString(),
-			expectedLen:        common.MaxIDHashLength,
-		},
-		{
-			name:               "Empty file path and CellID",
-			filePath:           "",
-			threatdragonCellID: "",
-			expectedLen:        common.MaxIDHashLength,
-		},
-		{
-			name:               "Long file path and CellID",
-			filePath:           "/a/very/long/path/to/a/file/that/should/be/hashed",
-			threatdragonCellID: uuid.NewString(),
-			expectedLen:        common.MaxIDHashLength,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			hash := generateIDHash(tt.filePath, tt.threatdragonCellID)
-			secondHash := generateIDHash(tt.filePath, tt.threatdragonCellID) // Generate a second hash for comparison
-			assert.Equal(t, hash, secondHash, "Hashes should be equal for the same input")
-			assert.NotEmpty(t, hash, "Hash should not be empty")
-			assert.Equal(t, tt.expectedLen, len(hash), fmt.Sprintf("Hash length should be %d characters", tt.expectedLen))
-		})
-	}
-}
-
-// TestExtractID tests the extraction of an AnalyzerID from a description string.
-func TestExtractID(t *testing.T) {
-	tests := []struct {
-		name        string
-		description string
-		expectedID  string
-	}{
-		{
-			name:        "Valid AnalyzerID",
-			description: "This is a test #AnalyzerID:1234567890abcdef1234567890abcdef#",
-			expectedID:  "1234567890abcdef1234567890abcdef",
-		},
-		{
-			name:        "No AnalyzerID",
-			description: "This is a test without an ID",
-			expectedID:  "",
-		},
-		{
-			name:        "Malformed AnalyzerID",
-			description: "This is a test #AnalyzerID:invalidhash123#",
-			expectedID:  "",
-		},
-		{
-			name:        "Multiple AnalyzerIDs",
-			description: "This is a test #AnalyzerID:1234567890abcdef1234567890abcdef# and another #AnalyzerID:7890123456789abcdef7890123456789abcdef#",
-			expectedID:  "1234567890abcdef1234567890abcdef", // Only the first match is returned
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractID(&tt.description, slog.Default())
-			assert.Equal(t, tt.expectedID, result)
-		})
-	}
-}
-
-// TestIsRelevantType tests if a cell type is relevant for analysis.
-func TestIsRelevantType(t *testing.T) {
-	tests := []struct {
-		name     string
-		cellType string
-		expected bool
-	}{
-		{
-			name:     "Relevant type: tm.Process",
-			cellType: "tm.Process",
-			expected: true,
-		},
-		{
-			name:     "Relevant type: tm.Store",
-			cellType: "tm.Store",
-			expected: true,
-		},
-		{
-			name:     "Irrelevant type: tm.Flow",
-			cellType: "tm.Flow",
-			expected: false,
-		},
-		{
-			name:     "Irrelevant type: tm.Actor",
-			cellType: "tm.Actor",
-			expected: false,
-		},
-		{
-			name:     "Irrelevant type: tm.Boundary",
-			cellType: "tm.Boundary",
-			expected: false,
-		},
-		{
-			name:     "Unknown type",
-			cellType: "unknown.Type",
-			expected: false, // Default behavior for unknown types
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isRelevantType(tt.cellType)
-			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -400,41 +307,36 @@ func TestGenerateInternalIDWithTag(t *testing.T) {
 		name               string
 		filePath           string
 		threatdragonCellID string
-		expectedTagPrefix  string
 		expectedIDLength   int
 	}{
 		{
 			name:               "Valid file path and cellID",
 			filePath:           "/path/to/file",
 			threatdragonCellID: uuid.NewString(),
-			expectedTagPrefix:  " #AnalyzerID:",
 			expectedIDLength:   common.MaxIDHashLength,
 		},
 		{
 			name:               "Empty file path and cellID",
 			filePath:           "",
 			threatdragonCellID: "",
-			expectedTagPrefix:  " #AnalyzerID:",
 			expectedIDLength:   common.MaxIDHashLength,
 		},
 		{
 			name:               "Long file path and cellID",
 			filePath:           "/a/very/long/path/to/a/file/that/should/be/hashed",
 			threatdragonCellID: uuid.NewString(),
-			expectedTagPrefix:  " #AnalyzerID:",
 			expectedIDLength:   common.MaxIDHashLength,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			idWithTag, id := generateInternalIDWithTag(tt.filePath, tt.threatdragonCellID, slog.Default())
+			id := generateIDHash(tt.filePath, tt.threatdragonCellID)
 
-			// Validate the ID with tag
-			assert.True(t, len(idWithTag) > len(tt.expectedTagPrefix), "ID with tag should be longer than the prefix")
-			assert.Regexp(t, fmt.Sprintf(`^#AnalyzerID:[0-9a-fA-F]{%d}#$`, tt.expectedIDLength), idWithTag, "ID with tag should match the expected format")
+			// basic checks
+			assert.NotEmpty(t, id, "ID should not be empty")
 
-			// Validate the ID
+			// id should have expected length and format
 			assert.Equal(t, tt.expectedIDLength, len(id), "ID should have the expected length")
 			assert.Regexp(t, fmt.Sprintf(`^[0-9a-fA-F]{%d}$`, tt.expectedIDLength), id, "ID should match the expected format")
 		})
@@ -495,6 +397,7 @@ func TestGetCellDataThreats(t *testing.T) {
 	assert.True(t, threats[1].IsGeneratedByUser, "user threat must be marked as generated by user")
 }
 
+// TestGetCellDataThreats_NoThreats tests the behavior of getCellDataThreats when no threats are present.
 func TestGetCellDataThreats_NoThreats(t *testing.T) {
 	data := Data{
 		Threats: nil,
@@ -502,4 +405,114 @@ func TestGetCellDataThreats_NoThreats(t *testing.T) {
 	threats, modelMap := getCellDataThreats(data, slog.Default(), "some/path")
 	assert.Equal(t, 0, len(threats), "expected no threats returned when data.Threats is nil")
 	assert.Equal(t, 0, len(modelMap), "expected empty model map when data.Threats is nil")
+}
+
+// TestAnalyzeDataFlows tests the Analyze function's ability to parse data flows from a Threat Dragon model.
+func TestAnalyzeDataFlows(t *testing.T) {
+	// Use existing testdata file used by other tests
+	input := NewThreatDragonInput("./testdata/models/three_tier_webapp_app.json", slog.Default())
+
+	model, err := input.Analyze()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+
+	// Expect at least one dataflow in the model
+	assert.Greater(t, len(model.DataFlows), 0, "expected at least one DataFlow parsed")
+
+	// Validate each dataflow basic properties and ID lengths
+	for _, df := range model.DataFlows {
+		assert.NotEmpty(t, df.ID, "DataFlow.ID should not be empty")
+		assert.Equal(t, common.MaxIDHashLength, len(df.ID), "DataFlow.ID should have expected length")
+
+		// Source and Target should have been replaced by internal asset IDs (length check)
+		assert.Equal(t, common.MaxIDHashLength, len(df.SourceID), "DataFlow.Source should be an internal ID but was %s", df.SourceID)
+		assert.Equal(t, common.MaxIDHashLength, len(df.TargetID), "DataFlow.Target with id %s should be an internal asset ID but was %s", df.ID, df.TargetID)
+	}
+
+	// Ensure that each DataFlow's Source and Target correspond to an asset in the model
+	for _, df := range model.DataFlows {
+		foundSrc := false
+		foundTgt := false
+		for _, a := range model.Assets {
+			if a.ID == df.SourceID {
+				foundSrc = true
+			}
+			if a.ID == df.TargetID {
+				foundTgt = true
+			}
+			if foundSrc && foundTgt {
+				break
+			}
+		}
+		assert.Equal(t, true, foundSrc, "Source asset not found for DataFlow %s (source=%s)", df.ID, df.SourceID)
+		assert.Equal(t, true, foundTgt, "Target asset not found for DataFlow %s (target=%s)", df.ID, df.TargetID)
+	}
+}
+
+// TestFindCorrespondingAsset verifies that findCorrespondingAsset returns the extracted analyzer ID
+// when present in the cell description and falls back to a generated hash when not present.
+// It also checks behavior for empty idToFind.
+func TestFindCorrespondingAsset(t *testing.T) {
+	logger := slog.Default()
+	filePath := "filePath"
+
+	// prepare cells: one with an embedded analyzer ID, one without
+	storedID := generateIDHash(filePath, "cellA")
+	descWithID := analyzerIDTag(storedID)
+	cells := []Cell{
+		{ID: "cellA", Data: Data{Description: &descWithID}},
+		{ID: "cellB", Data: Data{Description: nil}},
+	}
+
+	// existing cell with stored analyzer ID should return that ID
+	resA := findCorrespondingAsset("cellA", cells, filePath, logger)
+	assert.Equal(t, storedID, resA)
+
+	// existing cell without analyzer ID should return generated hash based on its cell ID
+	expectedB := generateIDHash(filePath, "cellB")
+	resB := findCorrespondingAsset("cellB", cells, filePath, logger)
+	assert.Equal(t, expectedB, resB)
+
+	// empty lookup should return empty string
+	empty := findCorrespondingAsset("", cells, filePath, logger)
+	assert.Equal(t, "", empty)
+}
+
+// TestReplaceSourceTargetAssetidsWithinternalIDs tests the replacement of target and source with hashed internal IDs
+func TestReplaceSourceTargetAssetidsWithinternalIDs(t *testing.T) {
+	filepath := "path/to/threatdragon.json"
+
+	s1 := "service1"
+	s2 := "service2"
+	s3 := "service3"
+
+	id1 := common.GenerateIDHashFromFilePath(filepath, s1)
+	id2 := common.GenerateIDHashFromFilePath(filepath, s2)
+	id3 := common.GenerateIDHashFromFilePath(filepath, s3)
+
+	dfs := []common.DataFlow{
+		{
+			SourceID: s1,
+			TargetID: s2,
+		},
+		{
+			SourceID: s2,
+			TargetID: s3,
+		},
+	}
+
+	cells := []Cell{
+		{ID: s1, Data: Data{}},
+		{ID: s2, Data: Data{}},
+		{ID: s3, Data: Data{}},
+	}
+
+	replaceSourceTargetAssetIdsWithInternalIDs(dfs, cells, filepath, slog.Default())
+
+	assert.Equal(t, id1, dfs[0].SourceID)
+	assert.Equal(t, id2, dfs[0].TargetID)
+	assert.Equal(t, id2, dfs[1].SourceID)
+	assert.Equal(t, id3, dfs[1].TargetID)
+
 }

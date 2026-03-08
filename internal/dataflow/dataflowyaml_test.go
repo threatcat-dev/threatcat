@@ -1,4 +1,4 @@
-package dataflowyaml
+package dataflow
 
 import (
 	"log/slog"
@@ -6,13 +6,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/threatcat-dev/threatcat/internal/common"
 )
 
 func TestDataflowYamlParser(t *testing.T) {
 	const filePath = "testdata/data-flow-for-test.yml"
 
 	parser := NewDataflowYamlParser(filePath, slog.Default())
-	tModel, err := parser.ParseAndConvert()
+	tModel, err := parser.ParseAndConvert(make([]common.ThreatModel, 0))
 	require.NoError(t, err)
 
 	dataFlows := tModel.DataFlows
@@ -34,5 +35,16 @@ func TestDataflowYamlParser(t *testing.T) {
 	assert.Equal(t, true, dataFlows[1].Encrypted)
 	assert.Equal(t, false, dataFlows[1].PublicNetwork)
 	assert.Equal(t, true, dataFlows[1].Bidirectional)
+
+	const wrongFilePath = "testdata/not-found.yml"
+	parser = NewDataflowYamlParser(wrongFilePath, slog.Default())
+	tModel, err = parser.ParseAndConvert(make([]common.ThreatModel, 0))
+	assert.NotNil(t, err)
+	assert.Nil(t, tModel)
+	const invalidYaml = "testdata/data-flow-for-test_invalidFormat.yml"
+	parser = NewDataflowYamlParser(invalidYaml, slog.Default())
+	tModel, err = parser.ParseAndConvert(make([]common.ThreatModel, 0))
+	assert.NotNil(t, err)
+	assert.Nil(t, tModel)
 
 }

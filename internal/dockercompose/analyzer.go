@@ -1,3 +1,5 @@
+// This file implements functionality for converting Docker Compose projects into threat model assets and boundaries.
+
 package dockercompose
 
 import (
@@ -13,13 +15,15 @@ import (
 // DockerComposeAnalyzer analyzes Docker Compose files
 type DockerComposeAnalyzer struct {
 	DockerComposeFilePath string
+	threatInvestigator    *DockerComposeThreatInvestigator
 	logger                *slog.Logger
 }
 
-// NewDockerComposeAnalyzer creates a new instance of DockerComposeAnalyzer
+// NewDockerComposeAnalyzer creates a new instance of DockerComposeAnalyzer for the given compose file and logger
 func NewDockerComposeAnalyzer(dockerComposeFilePath string, logger *slog.Logger) *DockerComposeAnalyzer {
 	return &DockerComposeAnalyzer{
 		DockerComposeFilePath: dockerComposeFilePath,
+		threatInvestigator:    NewDockerComposeThreatInvestigator(logger),
 		logger:                logger.With("package", "dockercompose", "component", "DockerComposeAnalyzer"),
 	}
 }
@@ -35,10 +39,12 @@ func (a *DockerComposeAnalyzer) Analyze(proj *types.Project, imageMap DockerImag
 	logger := a.logger.With("proj.Name", proj.Name)
 	logger.Debug("Beginning docker compose analysis")
 
+	networkNamePrefix := proj.Name + "_"
+
 	for _, network := range proj.Networks {
 		model.Boundaries = append(model.Boundaries, common.TrustBoundary{
-			ID:          common.GenerateIDHash(a.DockerComposeFilePath, network.Name),
-			DisplayName: strings.TrimPrefix(network.Name, proj.Name)[1:],
+			ID:          common.GenerateIDHashFromFilePath(a.DockerComposeFilePath, network.Name),
+			DisplayName: strings.TrimPrefix(network.Name, networkNamePrefix),
 			Source:      common.DataSourceDockerCompose,
 			Extra: map[string]any{
 				"initial-description": "Docker compose network",
@@ -51,13 +57,14 @@ func (a *DockerComposeAnalyzer) Analyze(proj *types.Project, imageMap DockerImag
 	// Iterate over each service in the Docker Compose project
 	for _, service := range proj.Services {
 		// Generate a unique ID for the asset by hashing the file path and service name
-		idHash := common.GenerateIDHash(a.DockerComposeFilePath, service.Name)
+		idHash := common.GenerateIDHashFromFilePath(a.DockerComposeFilePath, service.Name)
 		assetIDs = append(assetIDs, idHash)
 		// Create a new asset with the generated ID and service name
 		asset := common.Asset{
 			ID:          idHash,
 			DisplayName: service.Name,
 			Type:        imageMap.determineAssetType(service.Image, a.logger),
+			Threats:     a.threatInvestigator.InvestigateForThreats(service),
 			Source:      common.DataSourceDockerCompose,
 			Extra:       map[string]any{},
 		}
@@ -74,11 +81,12 @@ func (a *DockerComposeAnalyzer) Analyze(proj *types.Project, imageMap DockerImag
 				model.Boundaries[index].ContainedAssets = append(model.Boundaries[index].ContainedAssets, idHash)
 			}
 		}
+
 	}
 
 	if len(proj.Networks) == 0 {
 		model.Boundaries = append(model.Boundaries, common.TrustBoundary{
-			ID:          common.GenerateIDHash(a.DockerComposeFilePath, "default"),
+			ID:          common.GenerateIDHashFromFilePath(a.DockerComposeFilePath, "default"),
 			DisplayName: "Default Network",
 			Source:      common.DataSourceDockerCompose,
 			Extra: map[string]any{
@@ -87,13 +95,6 @@ func (a *DockerComposeAnalyzer) Analyze(proj *types.Project, imageMap DockerImag
 			ContainedAssets: assetIDs,
 		})
 	}
-
-	dataflows, err := a.parseDataFlows()
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse dataflows: %w", err)
-	}
-
-	model.DataFlows = dataflows
 
 	logger.Debug("Docker compose analysis finished", "assetCount", len(model.Assets))
 

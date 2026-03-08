@@ -51,16 +51,27 @@ func TestRealGitRunner_RepoRootAndCommitInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RepoRoot failed: %v", err)
 	}
-	if filepath.Clean(root) != filepath.Clean(repo) {
-		t.Errorf("expected repo root %s, got %s", repo, root)
+
+	// Resolve symlinks (macOS /var -> /private/var) before comparing
+	rootEval, err1 := filepath.EvalSymlinks(root)
+	if err1 != nil {
+		rootEval = root
+	}
+	repoEval, err2 := filepath.EvalSymlinks(repo)
+	if err2 != nil {
+		repoEval = repo
 	}
 
-	ci, err := gr.CommitInfo(root)
+	if filepath.Clean(rootEval) != filepath.Clean(repoEval) {
+		t.Errorf("repo root mismatch: expected %s, got %s", repoEval, rootEval)
+	}
+
+	ci, err := gr.CommitInfo(rootEval)
 	if err != nil {
 		t.Fatalf("CommitInfo failed: %v", err)
 	}
-	if ci.Repo != root {
-		t.Errorf("expected ci.Repo=%s, got %s", root, ci.Repo)
+	if ci.Repo != rootEval {
+		t.Errorf("expected ci.Repo=%s, got %s", rootEval, ci.Repo)
 	}
 	if ci.Ref == "" {
 		t.Error("expected non-empty Ref")

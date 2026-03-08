@@ -1,4 +1,4 @@
-package dataflowyaml
+package dataflow
 
 import (
 	"fmt"
@@ -21,7 +21,7 @@ func NewDataflowYamlParser(filePath string, logger *slog.Logger) *DataflowYamlPa
 	}
 }
 
-func (dfyp *DataflowYamlParser) ParseAndConvert() (*common.ThreatModel, error) {
+func (dfyp *DataflowYamlParser) ParseAndConvert(tModels []common.ThreatModel) (*common.ThreatModel, error) {
 	dataflows, err := dfyp.parse()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse dataflows yaml: %w", err)
@@ -33,6 +33,9 @@ func (dfyp *DataflowYamlParser) ParseAndConvert() (*common.ThreatModel, error) {
 	}
 
 	dfyp.generateIDs(dataflows)
+	for _, tModel := range tModels {
+		ReplaceAssetNamesWithIDs(dataflows, tModel.Assets, dfyp.logger) //not sure if it is the best solution
+	}
 
 	tModel := common.EmptyThreatModel()
 	tModel.DataFlows = dataflows
@@ -86,7 +89,7 @@ func (dfyp *DataflowYamlParser) validate(dataflows []common.DataFlow) error {
 
 func (dfyp *DataflowYamlParser) generateIDs(dataflows []common.DataFlow) {
 	for i, flow := range dataflows {
-		dataflows[i].ID = common.GenerateIDHash(dfyp.filePath, flow.Name)
+		dataflows[i].ID = common.GenerateIDHashFromFilePath(dfyp.filePath, flow.Name)
 	}
 }
 

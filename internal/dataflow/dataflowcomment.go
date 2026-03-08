@@ -1,7 +1,18 @@
-package dockercompose
+// Package dataflow provides parsers for extracting data flow definitions from multiple sources.
+//
+// The package supports two parsing strategies:
+//  1. Comment-based parsing: Extracts flows from specially formatted comments in Docker Compose files
+//     Format: #(source)<arrow>(target);Name;Protocol;Encrypted;Public
+//     Arrows: -->, <--, <-->
+//  2. YAML-based parsing: Parses dedicated YAML files with structured data flow definitions
+//
+// Both parsers produce common.DataFlow objects that can be integrated into threat models.
+
+package dataflow
 
 import (
 	"bufio"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -9,10 +20,44 @@ import (
 	"github.com/threatcat-dev/threatcat/internal/common"
 )
 
+type DataflowCommentParser struct {
+	filePath string
+	logger   *slog.Logger
+}
+
+func NewDataflowCommentParser(filePath string, logger *slog.Logger) *DataflowCommentParser {
+	return &DataflowCommentParser{
+		filePath: filePath,
+		logger:   logger.With("package", "dataflow", "component", "DataflowCommentParser"),
+	}
+}
+
+func ParseAndConvert(filePaths []string, tModels []common.ThreatModel, logger *slog.Logger) (*common.ThreatModel, error) {
+	var dataflows []common.DataFlow
+	//Create full list of all dataflows with ids
+	for _, filePath := range filePaths {
+		dfcp := NewDataflowCommentParser(filePath, logger)
+		dftmp, err := dfcp.parseDataFlows()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse docker compose yaml: %w", err)
+		}
+		dataflows = append(dataflows, dftmp...)
+	}
+
+	for _, tModel := range tModels {
+		ReplaceAssetNamesWithIDs(dataflows, tModel.Assets, logger) //not sure if it is the best solution
+	}
+
+	tModel := common.EmptyThreatModel()
+	tModel.DataFlows = dataflows
+
+	return &tModel, nil
+}
+
 // ParseDataFlows loads a docker-compose file and extracts comment-based dataflows.
 // Malformed lines are skipped (with debug logging).
-func (a *DockerComposeAnalyzer) parseDataFlows() ([]common.DataFlow, error) {
-	lines, err := a.readComments(a.DockerComposeFilePath)
+func (a *DataflowCommentParser) parseDataFlows() ([]common.DataFlow, error) {
+	lines, err := a.readComments(a.filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +73,7 @@ func (a *DockerComposeAnalyzer) parseDataFlows() ([]common.DataFlow, error) {
 }
 
 // readComments keeps only lines containing "#".
-func (a *DockerComposeAnalyzer) readComments(path string) ([]string, error) {
+func (a *DataflowCommentParser) readComments(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -48,7 +93,7 @@ func (a *DockerComposeAnalyzer) readComments(path string) ([]string, error) {
 
 // parseSingleDataFlow parses a single comment line.
 // Expected format: #(asset1)<dir>(asset2);Name;Protocol;Encrypted;Public
-func (a *DockerComposeAnalyzer) parseSingleDataFlow(line string) (common.DataFlow, bool) {
+func (a *DataflowCommentParser) parseSingleDataFlow(line string) (common.DataFlow, bool) {
 	hashIdx := strings.Index(line, "#(")
 	if hashIdx == -1 {
 		return common.DataFlow{}, false
@@ -68,7 +113,7 @@ func (a *DockerComposeAnalyzer) parseSingleDataFlow(line string) (common.DataFlo
 
 	asset1, arrow, asset2, ok := extractAssetsArrow(mainPart)
 	if !ok {
-		a.logger.Debug("Failed to parse asset/direction section", slog.String("input", line))
+		a.logger.Warn("Failed to parse asset/direction section", slog.String("input", line))
 		return common.DataFlow{}, false
 	}
 
@@ -79,9 +124,12 @@ func (a *DockerComposeAnalyzer) parseSingleDataFlow(line string) (common.DataFlo
 	}
 
 	df := common.DataFlow{
-		Source:        asset1,
-		Target:        asset2,
-		Bidirectional: bidirectional,
+		Source:            asset1,
+		Target:            asset2,
+		Bidirectional:     bidirectional,
+		Threats:           []common.Threat{},
+		DataSource:        common.DataSourceDockerCompose,
+		IsGeneratedByUser: false,
 	}
 
 	a.parseMeta(meta, &df)
@@ -124,7 +172,7 @@ func parseDirection(arrow string) (bool, bool) {
 	case "-->":
 		return false, false
 	case "<--":
-		return false, false
+		return true, false
 	default:
 		// fallback if invalid
 		return false, false
@@ -132,7 +180,7 @@ func parseDirection(arrow string) (bool, bool) {
 }
 
 // parseMeta fills Name, Protocol, Encrypted, PublicNetwork from meta fields.
-func (a *DockerComposeAnalyzer) parseMeta(parts []string, df *common.DataFlow) {
+func (a *DataflowCommentParser) parseMeta(parts []string, df *common.DataFlow) {
 	// defaults
 	df.Name = ""
 	df.Protocol = ""
@@ -146,7 +194,7 @@ func (a *DockerComposeAnalyzer) parseMeta(parts []string, df *common.DataFlow) {
 	}
 
 	df.Name = parts[0]
-	df.ID = common.GenerateIDHash(a.DockerComposeFilePath, df.Name)
+	df.ID = common.GenerateIDHashFromFilePath(a.filePath, df.Name)
 	df.Protocol = parts[1]
 
 	if strings.EqualFold(parts[2], "encrypted") {

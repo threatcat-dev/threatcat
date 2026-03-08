@@ -73,6 +73,11 @@ func (m mockGitRunner) CommitInfo(repo string) (CommitInfo, error) {
 	return m.commitInfoFunc(repo)
 }
 
+// Close implements GitRunner interface
+func (m mockGitRunner) Close() error {
+	return nil
+}
+
 func newTestChangelog(gr GitRunner) *Changelog {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cl := NewChangelog(logger)

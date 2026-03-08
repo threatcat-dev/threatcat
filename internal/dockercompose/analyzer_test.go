@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/v2/cli"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/threatcat-dev/threatcat/internal/common"
 )
@@ -149,6 +150,12 @@ func TestGetImageName(t *testing.T) {
 		{"myregistry.com/myrepo/nginx:latest", "nginx"},
 		{"docker.hub/postgres:latest", "postgres"},
 		{"unknown:latest", "unknown"},
+		{"simpleimage", "simpleimage"},
+		{"", ""},
+		{"myregistry.com/myrepo/compleximage:1.0", "compleximage"},
+		{"my-reg:5000/app:v1.0", "app"},
+		{"ubuntu@sha256:abcdef1234567890", "ubuntu"},
+		{"registry.gitlab.com/group/subgroup/image:tag", "image"},
 	}
 
 	// Iterate over each test case
@@ -192,4 +199,151 @@ func TestDetermineAssetTypeWithNoDockerImageMap(t *testing.T) {
 	// Analyze the project without a DockerImageMap
 	_, err := analyzer.Analyze(nil, nil)
 	assert.Error(t, err, "Expected an error when DockerImageMap is nil")
+}
+
+// TestAnalyzerBoundaries tests the Analyze method of DockerComposeAnalyzer for correct boundary creation
+func TestAnalyzerBoundaries(t *testing.T) {
+
+	dockerComposeFilePath := "testdata/docker-compose-for-test.yml"
+	// Create a new DockerImageMap instance
+	// This should be initialized with the internal image map
+	dockerImageMap, err := NewDockerImageMap("")
+	assert.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		proj     *types.Project
+		expected []common.TrustBoundary
+	}{
+		{
+			"Test single network boundary creation",
+			&types.Project{
+				Name: "myapp",
+				Networks: types.Networks{
+					"frontend": {Name: "myapp_frontend"},
+				},
+				Services: types.Services{
+					"web": {
+						Name: "web",
+						Networks: map[string]*types.ServiceNetworkConfig{
+							"frontend": {},
+						},
+					},
+				},
+			},
+			append([]common.TrustBoundary{},
+				common.TrustBoundary{
+					ID:          common.GenerateIDHashFromFilePath(dockerComposeFilePath, "myapp_frontend"),
+					DisplayName: "frontend",
+					Source:      common.DataSourceDockerCompose,
+					Extra: map[string]any{
+						"initial-description": "Docker compose network",
+					},
+					ContainedAssets: []string{common.GenerateIDHashFromFilePath(dockerComposeFilePath, "web")},
+				}),
+		},
+		{
+			"Test no network creates default boundary",
+			&types.Project{
+				Name:     "myapp",
+				Networks: types.Networks{},
+				Services: types.Services{
+					"web": {
+						Name:     "web",
+						Networks: map[string]*types.ServiceNetworkConfig{},
+					},
+				},
+			},
+			append([]common.TrustBoundary{},
+				common.TrustBoundary{
+					ID:          common.GenerateIDHashFromFilePath(dockerComposeFilePath, "default"),
+					DisplayName: "Default Network",
+					Source:      common.DataSourceDockerCompose,
+					Extra: map[string]any{
+						"initial-description": "General trust boundary for docker compose file 'testdata/docker-compose-for-test.yml'",
+					},
+					ContainedAssets: []string{common.GenerateIDHashFromFilePath(dockerComposeFilePath, "web")},
+				},
+			),
+		},
+		{
+			"Test multiple networks and display name computation",
+			&types.Project{
+				Name: "myapp",
+				Networks: types.Networks{
+					"frontend": {Name: "myapp_frontend"},
+					"backend":  {Name: "myapp_backend"},
+				},
+				Services: types.Services{
+					"proxy": {
+						Name: "proxy",
+						Networks: map[string]*types.ServiceNetworkConfig{
+							"frontend": {},
+						},
+					},
+				},
+			},
+			append([]common.TrustBoundary{},
+				common.TrustBoundary{
+					ID:          common.GenerateIDHashFromFilePath(dockerComposeFilePath, "myapp_frontend"),
+					DisplayName: "frontend",
+					Source:      common.DataSourceDockerCompose,
+					Extra: map[string]any{
+						"initial-description": "Docker compose network",
+					},
+					ContainedAssets: []string{common.GenerateIDHashFromFilePath(dockerComposeFilePath, "proxy")},
+				},
+				common.TrustBoundary{
+					ID:          common.GenerateIDHashFromFilePath(dockerComposeFilePath, "myapp_backend"),
+					DisplayName: "backend",
+					Source:      common.DataSourceDockerCompose,
+					Extra: map[string]any{
+						"initial-description": "Docker compose network",
+					},
+				},
+			),
+		},
+		{
+			"Test network name prefix handling",
+			&types.Project{
+				Name: "myapp",
+				Networks: types.Networks{
+					"frontend": {Name: "myapp_frontend"},
+				},
+				Services: types.Services{
+					"web": {
+						Name: "web",
+						Networks: map[string]*types.ServiceNetworkConfig{
+							"frontend": {},
+						},
+					},
+				},
+			},
+			append([]common.TrustBoundary{},
+				common.TrustBoundary{
+					ID:          common.GenerateIDHashFromFilePath(dockerComposeFilePath, "myapp_frontend"),
+					DisplayName: "frontend",
+					Source:      common.DataSourceDockerCompose,
+					Extra: map[string]any{
+						"initial-description": "Docker compose network",
+					},
+					ContainedAssets: []string{common.GenerateIDHashFromFilePath(dockerComposeFilePath, "web")},
+				},
+			),
+		},
+	}
+
+	// Iterate over each test case
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a new DockerComposeAnalyzer and analyze the project
+			analyzer := NewDockerComposeAnalyzer(dockerComposeFilePath, slog.Default())
+			result, err := analyzer.Analyze(tt.proj, dockerImageMap)
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+				return
+			}
+			assert.ElementsMatch(t, tt.expected, result.Boundaries)
+		})
+	}
 }
