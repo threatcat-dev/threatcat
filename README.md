@@ -121,6 +121,42 @@ To apply your custom definitions during a run, pass the configuration file to th
 ```bash
 threatcat -d /path/to/your/docker-compose.yml -i /path/to/your/threatcat.config -o /path/to/your/threatdragon-model.json
 ```
+
+### Data Flow Definitions
+
+To enable precise threat assessments, ThreatCat requires information on how data moves between your services. You can define these Data Flows using two distinct methods.
+
+1. *External Configuration* 
+
+Define flows in a dedicated `.yaml` file.
+
+```yaml
+dataflows: 
+  - name: "Flow1"
+    protocol: "http"
+    encrypted: false
+    publicnetwork: true
+    source: "web"
+    target: "db"
+    bidirectional: false
+```
+
+Pass the file to ThreatCat using the -w flag:
+
+```bash
+threatcat -d /path/to/your/docker-compose.yml -w /path/to/your/dataflow.yaml
+```
+
+
+2. *Embedded Metadata (In-file Comments)*
+
+For a "Documentation as Code" approach, embed data flow definitions directly within your docker-compose.yml. ThreatCat parses a Mermaid inspired syntax inside comments:
+
+```yaml
+  #(web)-->(db);Flow1;http;Unencrypted;publicnetwork
+  #(web)<-->(db2);Flow12;https;Encrypted;Private
+```
+
 ### Further Usage
 
 For a full list of all available commands and flags, you can always use the `-h` flag. This will provide you with the most up-to-date information.
