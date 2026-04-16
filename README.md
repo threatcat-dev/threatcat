@@ -150,7 +150,7 @@ threatcat -d /path/to/your/docker-compose.yml -w /path/to/your/dataflow.yaml
 
 2. *Embedded Metadata (In-file Comments)*
 
-For a "Documentation as Code" approach, embed data flow definitions directly within your docker-compose.yml. ThreatCat parses a Mermaid inspired syntax inside comments:
+For a "Documentation as Code" approach, embed data flow definitions directly within your `docker-compose.yml`. Threatcat parses a Mermaid inspired syntax inside comments:
 
 ```yaml
   #(web)-->(db);Flow1;http;Unencrypted;publicnetwork
